@@ -288,6 +288,7 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+  np->trace_mask = p->trace_mask;
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
@@ -594,6 +595,21 @@ kill(int pid)
     release(&p->lock);
   }
   return -1;
+}
+
+uint64
+unused_proc_amount(void)
+{
+  struct proc *p;
+  uint64 amount = 0;
+  for(p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    if (p->state != UNUSED) {
+      ++amount;
+    }
+    release(&p->lock);
+  }
+  return amount;
 }
 
 // Copy to either a user address, or kernel address,
