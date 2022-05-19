@@ -466,9 +466,8 @@ int get_accessed_pages(pagetable_t pagetable, uint64 vm, int pages_to_check) {
     pte_t* pte = walk(pagetable, /*va=*/vm + i * PGSIZE, 0);
     if ((*pte & PTE_A) != 0) {
       result = result | (1L << i);
-
+      (*pte) &= (~PTE_A);
     }
-    (*pte) &= (~PTE_A);
   }
   return result;
 }
