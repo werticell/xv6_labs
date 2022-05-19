@@ -76,14 +76,31 @@ sys_sleep(void)
 }
 
 
-#ifdef LAB_PGTBL
+//#ifdef LAB_PGTBL
 int
 sys_pgaccess(void)
 {
-  // lab pgtbl: your code here.
+  uint64 uvmaddr_start = 0;
+  if (argaddr(0, &uvmaddr_start) < 0) {
+    return -1;
+  }
+  int pages_to_check = 0;
+  if (argint(1, &pages_to_check) < 0) {
+    return -1;
+  }
+  uint64 result_addr = 0;
+  if (argaddr(2, &result_addr) < 0) {
+    return -1;
+  }
+  pagetable_t proc_pagetable = myproc()->pagetable;
+
+  int result = get_accessed_pages(proc_pagetable, uvmaddr_start, pages_to_check);
+  if (copyout(proc_pagetable, result_addr, (char*)&result, sizeof(result)) < 0) {
+    return -1;
+  }
   return 0;
 }
-#endif
+//#endif
 
 uint64
 sys_kill(void)

@@ -105,4 +105,7 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
+  // Frame for storing read only process data to speed up some syscalls.
+  struct usyscall* usyscall_frame;
 };
