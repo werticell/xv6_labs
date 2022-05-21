@@ -132,3 +132,21 @@ printfinit(void)
   initlock(&pr.lock, "pr");
   pr.locking = 1;
 }
+
+
+void backtrace(void)
+{
+  uint64 current_fp = r_fp();
+  // Xv6 allocates one page for each stack in the xv6 kernel at PAGE-aligned address.
+  uint64 top = PGROUNDUP(current_fp);
+  printf("backtrace:\n");
+  for (; 1;) {
+    printf("%p\n", *(uint64*)(current_fp - 8));
+    uint64 new_fp = *(uint64*)(current_fp - 16);
+    if (new_fp < top) {
+     current_fp = new_fp;
+    } else {
+      break;
+    }
+  }
+}

@@ -105,4 +105,13 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
+  // Sigalarm fields.
+  int alarm_enabled;
+  int ticks_passed;
+  int handling_alarm; // If non-zero that means that process is executing handler function
+  struct trapframe before_handler_ctx;
+
+  uint64 handler;
+  int ticks_to_alarm;
 };

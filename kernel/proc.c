@@ -134,6 +134,11 @@ found:
     release(&p->lock);
     return 0;
   }
+  // Alarm setup.
+  p->alarm_enabled = 0;
+  p->ticks_to_alarm = 0;
+  p->handling_alarm = 0;
+  p->handler = 0;
 
   // Set up new context to start executing at forkret,
   // which returns to user space.

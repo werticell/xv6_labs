@@ -66,7 +66,15 @@ usertrap(void)
 
     syscall();
   } else if((which_dev = devintr()) != 0){
-    // ok
+    // On time interrupts check if alarm enabled.
+    if (which_dev == 2 && p->alarm_enabled) {
+      if (p->handling_alarm == 0 && ++p->ticks_passed == p->ticks_to_alarm) {
+        p->ticks_passed = 0;
+        p->handling_alarm = 1;
+        p->before_handler_ctx = *p->trapframe;
+        p->trapframe->epc = p->handler;
+      }
+    }
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
