@@ -11,13 +11,37 @@
 #define MAX_THREAD  4
 
 
+// Saved registers for user context switches (Just like one in the kernel to switch between kernel thread and scheduler)
+struct context {
+  uint64 ra;
+  uint64 sp;
+
+  // callee-saved
+  uint64 s0;
+  uint64 s1;
+  uint64 s2;
+  uint64 s3;
+  uint64 s4;
+  uint64 s5;
+  uint64 s6;
+  uint64 s7;
+  uint64 s8;
+  uint64 s9;
+  uint64 s10;
+  uint64 s11;
+};
+
 struct thread {
   char       stack[STACK_SIZE]; /* the thread's stack */
   int        state;             /* FREE, RUNNING, RUNNABLE */
+  struct context ctx;
 };
 struct thread all_thread[MAX_THREAD];
 struct thread *current_thread;
 extern void thread_switch(uint64, uint64);
+
+
+///////////////////////////////////////////////////////////////////////////////////////////
               
 void 
 thread_init(void)
@@ -29,6 +53,9 @@ thread_init(void)
   // a RUNNABLE thread.
   current_thread = &all_thread[0];
   current_thread->state = RUNNING;
+  for (int i = 1; i < MAX_THREAD; ++i) {
+    all_thread[i].state = FREE;
+  }
 }
 
 void 
@@ -39,7 +66,7 @@ thread_schedule(void)
   /* Find another runnable thread. */
   next_thread = 0;
   t = current_thread + 1;
-  for(int i = 0; i < MAX_THREAD; i++){
+  for(int i = 0; i < MAX_THREAD; ++i){
     if(t >= all_thread + MAX_THREAD)
       t = all_thread;
     if(t->state == RUNNABLE) {
@@ -58,10 +85,7 @@ thread_schedule(void)
     next_thread->state = RUNNING;
     t = current_thread;
     current_thread = next_thread;
-    /* YOUR CODE HERE
-     * Invoke thread_switch to switch from t to next_thread:
-     * thread_switch(??, ??);
-     */
+    thread_switch((uint64)&t->ctx, (uint64)&next_thread->ctx);
   } else
     next_thread = 0;
 }
@@ -71,11 +95,14 @@ thread_create(void (*func)())
 {
   struct thread *t;
 
-  for (t = all_thread; t < all_thread + MAX_THREAD; t++) {
+  for (t = all_thread; t < all_thread + MAX_THREAD; ++t) {
     if (t->state == FREE) break;
   }
   t->state = RUNNABLE;
-  // YOUR CODE HERE
+  memset(&t->stack, 42, STACK_SIZE); // Fill with junk
+  memset(&t->ctx, 0, sizeof(t->ctx));
+  t->ctx.ra = (uint64)func;
+  t->ctx.sp = (uint64)(&t->stack[STACK_SIZE]); // Stack grows downwards
 }
 
 void 
@@ -84,6 +111,13 @@ thread_yield(void)
   current_thread->state = RUNNABLE;
   thread_schedule();
 }
+
+void thread_exit(void) {
+  current_thread->state = FREE;
+  thread_schedule();
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////
 
 volatile int a_started, b_started, c_started;
 volatile int a_n, b_n, c_n;
@@ -104,8 +138,7 @@ thread_a(void)
   }
   printf("thread_a: exit after %d\n", a_n);
 
-  current_thread->state = FREE;
-  thread_schedule();
+  thread_exit();
 }
 
 void 
@@ -124,8 +157,7 @@ thread_b(void)
   }
   printf("thread_b: exit after %d\n", b_n);
 
-  current_thread->state = FREE;
-  thread_schedule();
+  thread_exit();
 }
 
 void 
@@ -144,8 +176,7 @@ thread_c(void)
   }
   printf("thread_c: exit after %d\n", c_n);
 
-  current_thread->state = FREE;
-  thread_schedule();
+  thread_exit();
 }
 
 int 
