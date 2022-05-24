@@ -67,6 +67,18 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if (r_scause() == 15) {
+    // Store/AMO page faults
+    // https://five-embeddev.com/riscv-isa-manual/latest/supervisor.html
+
+    // When a hardware breakpoint is triggered, or an instruction,
+    // load, or store address-misaligned, access-fault, or page-fault
+    // exception occurs, stval is written with the faulting virtual address.
+    uint64 va = r_stval();
+    if (cow_allocate(p->pagetable, PGROUNDDOWN(va)) != 0) {
+      p->killed = 1;
+    }
+
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());

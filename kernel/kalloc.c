@@ -9,6 +9,8 @@
 #include "riscv.h"
 #include "defs.h"
 
+#define PGS_COUNT (PGROUNDUP(PHYSTOP) / PGSIZE)
+
 void freerange(void *pa_start, void *pa_end);
 
 extern char end[]; // first address after kernel.
@@ -23,10 +25,56 @@ struct {
   struct run *freelist;
 } kmem;
 
+// RefCount machinery for Copy on Write Fork.
+//////////////////////////////////////////////////////////////////////////////////
+struct refcounted_page {
+  struct spinlock lock;
+  int ref_count;
+};
+
+
+// Array for every possible page of physical memory.
+struct refcounted_page rc_pages[PGROUNDUP(PHYSTOP) / PGSIZE];
+
+void init_refcounts() {
+  for (int i = 0; i < PGROUNDUP(PHYSTOP) / PGSIZE; ++i) {
+    initlock(&rc_pages[i].lock, "rclock");
+    rc_pages[i].ref_count = 0;
+  }
+}
+
+
+int fetch_add_page_rc(uint64 pa) {
+  uint64 id = pa >> 12;
+  acquire(&rc_pages[id].lock);
+  int result = rc_pages[id].ref_count++;
+  release(&rc_pages[id].lock);
+  return result;
+}
+
+int fetch_sub_page_rc(uint64 pa) {
+  uint64 id = pa >> 12;
+  acquire(&rc_pages[id].lock);
+  int result = rc_pages[id].ref_count--;
+  release(&rc_pages[id].lock);
+  return result;
+}
+
+int load_page_rc(uint64 pa) {
+  uint64 id = pa >> 12;
+  acquire(&rc_pages[id].lock);
+  int result = rc_pages[id].ref_count;
+  release(&rc_pages[id].lock);
+  return result;
+}
+
+////////////////////////////////////////////////////////////////////////////////////
+
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+  init_refcounts();
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -35,8 +83,11 @@ freerange(void *pa_start, void *pa_end)
 {
   char *p;
   p = (char*)PGROUNDUP((uint64)pa_start);
-  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
+  for (; p + PGSIZE <= (char*)pa_end; p += PGSIZE) {
+    uint64 id = (uint64)p >> 12;
+    rc_pages[id].ref_count = 1;// In order for kfree to correctly free this page.
     kfree(p);
+  }
 }
 
 // Free the page of physical memory pointed at by v,
@@ -48,8 +99,14 @@ kfree(void *pa)
 {
   struct run *r;
 
-  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
+  if (((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP) {
     panic("kfree");
+  }
+
+  if (fetch_sub_page_rc((uint64)pa) > 1) {
+    // If we are not last to release our reference to this page => do nothing.
+    return;
+  }
 
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
@@ -72,11 +129,16 @@ kalloc(void)
 
   acquire(&kmem.lock);
   r = kmem.freelist;
-  if(r)
+  if (r) {
     kmem.freelist = r->next;
+  }
   release(&kmem.lock);
 
-  if(r)
+  if (r) {
     memset((char*)r, 5, PGSIZE); // fill with junk
+    uint64 id = (uint64)r >> 12;
+    rc_pages[id].ref_count = 1;
+  }
   return (void*)r;
 }
+

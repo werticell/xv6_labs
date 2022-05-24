@@ -300,31 +300,27 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 int
 uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 {
-  pte_t *pte;
-  uint64 pa, i;
-  uint flags;
-  char *mem;
-
-  for(i = 0; i < sz; i += PGSIZE){
-    if((pte = walk(old, i, 0)) == 0)
+  for (uint64 i = 0; i < sz; i += PGSIZE) {
+    pte_t* pte = walk(old, i, 0);
+    if (pte == 0) {
       panic("uvmcopy: pte should exist");
-    if((*pte & PTE_V) == 0)
+    }
+    if ((*pte & PTE_V) == 0) {
       panic("uvmcopy: page not present");
-    pa = PTE2PA(*pte);
-    flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
-      goto err;
+    }
+    uint64 pa = PTE2PA(*pte);
+    // Forbid writing to this page and mark it as Copied On Write to handle Page Faults correctly.
+    uint cow_flags = (PTE_FLAGS(*pte) & (~PTE_W)) | PTE_COW;
+
+    *pte = PA2PTE(pa) | cow_flags;
+
+    fetch_add_page_rc((uint64)pa);
+    if (mappages(new, /*va=*/i, /*size=*/PGSIZE, /*pa*/(uint64)pa, cow_flags) != 0) {
+      uvmunmap(new, 0, i / PGSIZE, 1);
+      return -1;
     }
   }
   return 0;
-
- err:
-  uvmunmap(new, 0, i / PGSIZE, 1);
-  return -1;
 }
 
 // mark a PTE invalid for user access.
@@ -350,6 +346,9 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
+    if (cow_allocate(pagetable, va0) != 0) {
+      return -1;
+    }
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0)
       return -1;
@@ -431,4 +430,43 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+
+int cow_allocate(pagetable_t pagetable, uint64 va) {
+  if (va >= MAXVA) {
+    return -1;
+  }
+
+  pte_t* pte = walk(pagetable, va, 0);
+  if (pte == 0) {
+    return -1;
+  }
+
+  uint64 pa = PTE2PA(*pte);
+  if (pa == 0) {
+    return -1;
+  }
+
+  uint flags = PTE_FLAGS(*pte);
+  if ((flags & PTE_COW) == 0) {
+    return 0; // Not a Cow page.
+  }
+
+//  char* new_page = cow_alloc(pa);
+  char* new_page = (char*)pa;
+  if (load_page_rc(pa) > 1) {
+    new_page = kalloc();
+    if (new_page == 0) {
+      return -1;
+    }
+    memmove(new_page, (char*)pa, PGSIZE);
+    kfree((void*)pa);
+  }
+
+  // Remap va -> pa, remove COW flag, add Write permissions.
+  flags = (flags & (~PTE_COW)) | PTE_W;
+  *pte = PA2PTE((uint64)new_page) | flags;
+
+  return 0;
 }
