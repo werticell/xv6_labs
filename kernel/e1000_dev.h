@@ -99,7 +99,7 @@
 // [E1000 3.3.3]
 struct tx_desc
 {
-  uint64 addr;
+  uint64 addr; // Mbuf head address
   uint16 length;
   uint8 cso;
   uint8 cmd;

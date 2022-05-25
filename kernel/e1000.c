@@ -95,13 +95,29 @@ e1000_init(uint32 *xregs)
 int
 e1000_transmit(struct mbuf *m)
 {
-  //
-  // Your code here.
-  //
   // the mbuf contains an ethernet frame; program it into
   // the TX descriptor ring so that the e1000 sends it. Stash
   // a pointer so that it can be freed after sending.
-  //
+  acquire(&e1000_lock);
+  int index = regs[E1000_TDT]; // ask for the TX ring index at which it's expecting the next packet
+
+  if (tx_ring[index].status != E1000_TXD_STAT_DD) { // E1000 has finished transmitting the packet return an error
+    release(&e1000_lock);
+    return -1;
+  }
+
+  if (tx_mbufs[index]) {
+    mbuffree(tx_mbufs[index]);
+  }
+
+  tx_ring[index].addr = (uint64)m->head;
+  tx_ring[index].length = m->len;
+  tx_ring[index].cmd = E1000_TXD_CMD_RS | E1000_TXD_CMD_EOP;
+  tx_ring[index].status = 0;
+  tx_mbufs[index] = m;
+
+  regs[E1000_TDT] = (index + 1) % TX_RING_SIZE;
+  release(&e1000_lock);
   
   return 0;
 }
@@ -109,12 +125,33 @@ e1000_transmit(struct mbuf *m)
 static void
 e1000_recv(void)
 {
-  //
-  // Your code here.
-  //
   // Check for packets that have arrived from the e1000
   // Create and deliver an mbuf for each packet (using net_rx()).
   //
+  acquire(&e1000_lock);
+  while (1) {
+    int index = (regs[E1000_RDT] + 1) % RX_RING_SIZE; // Next waiting received packet
+    if ((rx_ring[index].status & E1000_RXD_STAT_DD) == 0) { // Check if a new packet is available
+      break;
+    }
+    rx_mbufs[index]->len = rx_ring[index].length;
+
+    release(&e1000_lock);
+    net_rx(rx_mbufs[index]);
+    acquire(&e1000_lock);
+
+    // You will then need to allocate a new mbuf and place it into the descriptor,
+    // so that when the E1000 reaches that point in the RX ring again
+    // it finds a fresh buffer into which to DMA a new packet.
+    rx_mbufs[index] = mbufalloc(0);
+    rx_ring[index].addr = (uint64)rx_mbufs[index]->head;
+    rx_ring[index].length = rx_mbufs[index]->len;
+    rx_ring[index].status = 0;
+
+    // Update the E1000_RDT register to be the index of the last ring descriptor processed.
+    regs[E1000_RDT] = index;
+  }
+  release(&e1000_lock);
 }
 
 void

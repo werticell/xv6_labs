@@ -144,10 +144,10 @@ dns_rep(uint8 *ibuf, int cc)
     exit(1);
   }
   
-  //printf("qdcount: %x\n", ntohs(hdr->qdcount));
-  //printf("ancount: %x\n", ntohs(hdr->ancount));
-  //printf("nscount: %x\n", ntohs(hdr->nscount));
-  //printf("arcount: %x\n", ntohs(hdr->arcount));
+  printf("qdcount: %x\n", ntohs(hdr->qdcount));
+  printf("ancount: %x\n", ntohs(hdr->ancount));
+  printf("nscount: %x\n", ntohs(hdr->nscount));
+  printf("arcount: %x\n", ntohs(hdr->arcount));
   
   len = sizeof(struct dns);
 
@@ -194,6 +194,7 @@ dns_rep(uint8 *ibuf, int cc)
   // needed for DNS servers with EDNS support
   for(int i = 0; i < ntohs(hdr->arcount); i++) {
     char *qn = (char *) (ibuf+len);
+//    printf("%d", *qn);
     if(*qn != 0) {
       printf("invalid name for EDNS\n");
       exit(1);
@@ -202,6 +203,7 @@ dns_rep(uint8 *ibuf, int cc)
 
     struct dns_data *d = (struct dns_data *) (ibuf+len);
     len += sizeof(struct dns_data);
+//    printf("%d", htons(d->type));
     if(ntohs(d->type) != 41) {
       printf("invalid type for EDNS\n");
       exit(1);
@@ -222,7 +224,7 @@ dns_rep(uint8 *ibuf, int cc)
 static void
 dns()
 {
-  #define N 1000
+  #define N 1500
   uint8 obuf[N];
   uint8 ibuf[N];
   uint32 dst;
@@ -233,7 +235,7 @@ dns()
   memset(ibuf, 0, N);
   
   // 8.8.8.8: google's name server
-  dst = (8 << 24) | (8 << 16) | (8 << 8) | (8 << 0);
+  dst = (8 << 24) | (8 << 16) | (4 << 8) | (4 << 0);
 
   if((fd = connect(dst, 10000, 53)) < 0){
     fprintf(2, "ping: connect() failed\n");
